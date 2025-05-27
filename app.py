@@ -8,7 +8,7 @@ from langchain.chat_models import ChatOpenAI
 from langchain.chains import RetrievalQA
 
 # Set OpenRouter credentials (for LLM only)
-os.environ["OPENAI_API_KEY"] = "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"  # 🔑 Replace with your actual key
+os.environ["OPENAI_API_KEY"] = "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"  # 🔑 Replace with your actual key
 os.environ["OPENAI_API_BASE"] = "https://openrouter.ai/api/v1"
 
 # --- UI Enhancements ---
