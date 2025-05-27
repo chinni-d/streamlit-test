@@ -7,3 +7,4 @@ torch
 pypdf
 python-docx
 openai
+langchain-community
