@@ -1,7 +1,6 @@
 streamlit
-pandas
-numpy
-matplotlib
-seaborn
-plotly
-scikit-learn
+langchain
+openai
+faiss-cpu
+docx2txt
+pypdf

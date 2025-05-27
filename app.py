@@ -1,108 +1,280 @@
+import os
 import streamlit as st
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-import plotly.express as px
-import pickle
-import time
+import tempfile
+from langchain.document_loaders import PyPDFLoader, Docx2txtLoader
+from langchain.embeddings import HuggingFaceEmbeddings
+from langchain.vectorstores import FAISS
+from langchain.chat_models import ChatOpenAI
+from langchain.chains import RetrievalQA
 
-st.set_page_config(page_title="Streamlit All-in-One", layout="wide")
+# Set OpenRouter credentials (for LLM only)
+os.environ["OPENAI_API_KEY"] = "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"  # 🔑 Replace with your actual key
+os.environ["OPENAI_API_BASE"] = "https://openrouter.ai/api/v1"
 
-# Title
-st.title("🧠 All-in-One Streamlit Dashboard")
+# --- UI Enhancements ---
+st.set_page_config(page_title="📄 Document QA Chatbot", layout="wide", page_icon="📄")
 
-# Sidebar navigation
-menu = st.sidebar.radio("Navigation", ["🏠 Home", "📁 Upload Data", "📈 Visualize", "🤖 ML Model"])
+# Custom CSS for a modern and clean look
+st.markdown(
+    """
+    <style>
+    /* General Styles */
+    html, body, [class*="css"] {
+        font-family: 'Segoe UI', Roboto, Arial, sans-serif;
+        color: #000000 !important; /* FORCE BLACK TEXT GLOBALLY */
+    }
+    .main {
+        background-color: #f8f9fa !important; /* Light gray background */
+        padding: 2rem;
+        color: #000000 !important; /* Ensure text in main is black */
+    }
+    .stApp {
+        background-color: #f8f9fa !important; /* Consistent light gray background */
+        color: #000000 !important; /* Ensure text in stApp is black */
+    }
 
-# 1. HOME
-if menu == "🏠 Home":
-    st.header("Welcome to the Streamlit Showcase App")
-    st.markdown("""
-    This app demonstrates **major features** of Streamlit:
-    - Widgets
-    - File upload
-    - Data visualization
-    - ML prediction
-    - Session state
-    - Layouts and caching
-    """)
-    st.image("https://streamlit.io/images/brand/streamlit-logo-primary-colormark-darktext.png", width=300)
+    /* Ensure all markdown text is black */
+    .stMarkdown, .stMarkdown p, .stMarkdown li {
+        color: #000000 !important;
+    }
 
-# 2. UPLOAD DATA
-elif menu == "📁 Upload Data":
-    st.header("Upload Your CSV File")
-    uploaded_file = st.file_uploader("Upload a CSV file", type="csv")
+    /* Title */
+    h1 {
+        color: #2c3e50; /* Dark blue-gray */
+        text-align: center;
+        padding-bottom: 1rem;
+    }
 
-    if uploaded_file:
-        @st.cache_data
-        def load_data(file):
-            return pd.read_csv(file)
+    /* Sidebar */
+    .stSidebar {
+        background-color: #ffffff !important; /* FORCE WHITE sidebar background */
+        padding: 1rem;
+        border-right: 1px solid #e0e0e0; /* Subtle border */
+    }
+    /* Style the sidebar collapse/expand arrow - trying more general and specific selectors */
+    /* Attempt 1: Targeting common Streamlit button patterns with SVGs */
+    .stSidebar button[kind="icon"] svg {
+        fill: #000000 !important;
+    }
+    /* Attempt 2: Using data-testid which are sometimes stable */
+    button[data-testid="stSidebarNavCollapseButton"] svg,
+    button[data-testid="stSidebarCollapseButton"] svg {
+        fill: #000000 !important;
+    }
+    /* Attempt 3: A more direct path if the structure is consistent */
+    .stSidebar > div:first-child > div:first-child > button svg {
+        fill: #000000 !important;
+    }
+    /* Attempt 4: Broadest attempt for any SVG in a button in the sidebar header area */
+    div[data-testid="stSidebarHeader"] button svg {
+        fill: #000000 !important;
+    }
+    /* Attempt 5: Broadest for any SVG in any button directly in stSidebar first div */
+    .stSidebar > div > button svg {
+         fill: #000000 !important;
+    }
 
-        df = load_data(uploaded_file)
-        st.success("✅ Data Loaded Successfully!")
-        st.dataframe(df.head())
+    .stSidebar .stMarkdown h2 {
+        color: #2c3e50 !important; /* Dark blue-gray for sidebar titles */
+        font-size: 1.5rem;
+    }
+    .stSidebar .stMarkdown p, .stSidebar .stInfo, .stSidebar .stInfo > div {
+        color: #000000 !important; /* FORCE BLACK text in sidebar paragraphs and info boxes */
+        font-size: 0.95rem;
+    }
+    .stSidebar .stImage>img {
+        border-radius: 8px;
+        margin-bottom: 1rem;
+    }
 
-        # Show data info
-        if st.checkbox("Show summary statistics"):
-            st.write(df.describe())
+    /* File Uploader and Text Input */
+    .stFileUploader > div > div {
+        border: 1.5px dashed #3498db; /* Blue dashed border - can be changed if desired */
+        border-radius: 8px;
+        background-color: #d2e6f9 ; /* New background color D2E6F9 */
+    }
+    .stFileUploader label { /* Target the label of the file uploader */
+        color: #000000 !important; /* Ensure label text is black */
+    }
 
-# 3. VISUALIZE
-elif menu == "📈 Visualize":
-    st.header("Visualize Data with Seaborn and Plotly")
-    uploaded_file = st.file_uploader("Upload CSV", key="viz", type="csv")
+    .stTextInput > div > input {
+        border: 1.5px solid #bdc3c7; /* Light gray border - can be changed if desired */
+        border-radius: 8px;
+        padding: 0.75rem 1rem;
+        background-color: #d2e6f9 !important; /* New background color D2E6F9 */
+        color: #000000 !important; /* Ensure input text is black */
+    }
+    .stTextInput > div > input:focus {
+        border-color: #3498db; /* Blue border on focus */
+        box-shadow: 0 0 0 0.2rem rgba(52, 152, 219, 0.25);
+    }
 
-    if uploaded_file:
-        df = pd.read_csv(uploaded_file)
-        numeric_cols = df.select_dtypes(include=["int64", "float64"]).columns.tolist()
+    /* Buttons (if any, for future use) */
+    .stButton>button {
+        color: white;
+        background-color: #3498db; /* Primary blue */
+        border-radius: 8px;
+        font-weight: 600;
+        padding: 0.6em 1.5em;
+        border: none;
+        transition: background-color 0.2s;
+    }
+    .stButton>button:hover {
+        background-color: #2980b9; /* Darker blue on hover */
+    }
 
-        st.subheader("Choose Columns")
-        x_col = st.selectbox("X-axis", numeric_cols)
-        y_col = st.selectbox("Y-axis", numeric_cols, index=1)
-        chart_type = st.radio("Chart Type", ["Scatter", "Line", "Bar", "Plotly Scatter"])
+    /* Expander for Source Documents */
+    .stExpander {
+        border: 1px solid #e0e0e0;
+        border-radius: 8px !important;
+        background-color: #ffffff !important; /* White background for expander */
+        margin-top: 1.5rem;
+    }
+    .stExpanderHeader {
+        font-weight: 600;
+        color: #2c3e50; /* Dark blue-gray for expander headers - this is fine */
+        font-size: 1.1rem;
+    }
+    .stExpander code { /* Style for code within expander if any */
+        background-color: #f0f0f0;
+        padding: 0.2em 0.4em;
+        border-radius: 3px;
+    }
 
-        st.subheader("Generated Chart")
-        if chart_type == "Scatter":
-            fig, ax = plt.subplots()
-            sns.scatterplot(data=df, x=x_col, y=y_col, ax=ax)
-            st.pyplot(fig)
-        elif chart_type == "Line":
-            fig, ax = plt.subplots()
-            sns.lineplot(data=df, x=x_col, y=y_col, ax=ax)
-            st.pyplot(fig)
-        elif chart_type == "Bar":
-            fig, ax = plt.subplots()
-            sns.barplot(data=df, x=x_col, y=y_col, ax=ax)
-            st.pyplot(fig)
-        elif chart_type == "Plotly Scatter":
-            fig = px.scatter(df, x=x_col, y=y_col, title="Interactive Plotly Chart")
-            st.plotly_chart(fig)
+    /* Answer and Messages */
+    .stAlert, .stSuccess, .stInfo, .stError { /* General alert styling */
+        border-radius: 8px !important;
+        font-size: 1rem;
+        padding: 1rem;
+    }
+    /* Custom styling for the answer block */
+    .answer-block {
+        background-color: #eafaf1; /* Light green background */
+        padding:1em 1.2em;
+        border-radius:8px;
+        border-left:5px solid #2ecc71; /* Green left border */
+        margin-top: 1rem;
+        color: #000000 !important; /* Black text for answer block */
+    }
+    .answer-block b {
+        color: #1e8449; /* Darker green for "Answer:" label, stands out from black text */
+    }
+    /* Styling for source document items */
+    .source-doc-item {
+        font-size:0.9em;
+        color:#000000 !important; /* Black text for source documents */
+        max-height:150px;
+        overflow-y:auto;
+        padding:8px;
+        border:1px solid #dddddd;
+        border-radius:5px;
+        background-color: #f0f0f0 !important; /* Distinct light gray background */
+        margin-bottom: 8px;
+    }
 
-# 4. ML MODEL
-elif menu == "🤖 ML Model":
-    st.header("Simple ML Predictor")
+    /* Ensure Streamlit's native alerts have dark text if their background is light */
+    .stAlert > div { /* Target the inner div where text often resides */
+        color: #000000 !important;
+    }
+    /* If specific alert types still have issues, they can be targeted: */
+    .stSuccess > div, .stInfo > div, .stWarning > div, .stError > div {
+        color: #000000 !important; /* Assuming their default backgrounds are light */
+    }
 
-    st.markdown("Use sample features to test a pre-trained model.")
-    col1, col2 = st.columns(2)
-    with col1:
-        a = st.slider("Feature 1", 0.0, 10.0)
-        b = st.slider("Feature 2", 0.0, 10.0)
-    with col2:
-        c = st.slider("Feature 3", 0.0, 10.0)
-        d = st.slider("Feature 4", 0.0, 10.0)
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
-    # Simulated model
-    st.subheader("Prediction Result")
-    progress = st.progress(0)
-    for i in range(100):
-        time.sleep(0.01)
-        progress.progress(i + 1)
+# Sidebar for branding and instructions
+with st.sidebar:
+    st.markdown("## 📄 Document QA Chatbot")
+    st.markdown(
+        """
+        **How to use:**
+        1. **Upload** your PDF or DOCX file.
+        2. **Ask** a question related to the document.
+        3. Get an **instant answer** with cited sources!
+        """
+    )
+    st.info("Powered by Langchain, OpenRouter, and HuggingFace Embeddings.")
 
-    fake_model_result = a + b + c + d
-    st.success(f"✅ Predicted Value: {round(fake_model_result, 2)}")
+# Main Page Layout
+st.title("📄 Document QA Chatbot ")
 
-    if fake_model_result > 20:
-        st.error("Warning: High risk!")
+# Using columns for a more organized layout
+col1, col2 = st.columns([2, 3]) # Adjust ratio as needed
+
+with col1:
+    uploaded_file = st.file_uploader(
+        "Upload your PDF or DOCX document",
+        type=["pdf", "docx"],
+        help="Drag and drop or click to upload your document."
+    )
+
+with col2:
+    query = st.text_input(
+        "Ask a question about the content of your document:",
+        placeholder="E.g., What are the main findings?",
+        help="Type your question here and press Enter."
+    )
+
+if uploaded_file and query:
+    # Save uploaded file temporarily
+    with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
+        tmp_file.write(uploaded_file.read())
+        tmp_path = tmp_file.name
+
+    # Load the document
+    if uploaded_file.name.endswith(".pdf"):
+        loader = PyPDFLoader(tmp_path)
     else:
-        st.info("Normal range.")
+        loader = Docx2txtLoader(tmp_path)
 
+    documents = loader.load()
+
+    # Use HuggingFace local embeddings instead of OpenAI
+    embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+    vectordb = FAISS.from_documents(documents, embeddings)
+
+    # Create retriever and QA chain with OpenRouter model
+    retriever = vectordb.as_retriever()
+    qa_chain = RetrievalQA.from_chain_type(
+        llm=ChatOpenAI(
+            temperature=0,
+            model_name="openai/gpt-3.5-turbo", # or try another model from OpenRouter
+        ),
+        chain_type="stuff",
+        retriever=retriever,
+        return_source_documents=True,
+    )
+
+    with st.spinner("🧠 Thinking & Analyzing Document..."):
+        try:
+            result = qa_chain(query)
+
+            # Display answer in a styled block
+            st.markdown(
+                f"<div class='answer-block'><b>Answer:</b><br>{result['result']}</div>",
+                unsafe_allow_html=True
+            )
+
+            # Show source documents
+            with st.expander("🔍 View Source Documents"):
+                for i, doc in enumerate(result["source_documents"], 1):
+                    st.markdown(f"**Source {i}:**")
+                    # Apply the new class for better styling and visibility
+                    st.markdown(f"<div class='source-doc-item'>{doc.page_content}</div>", unsafe_allow_html=True)
+                    if i < len(result["source_documents"]): # Add separator if not the last document
+                        st.markdown("---")
+        except Exception as e:
+            st.error(f"❌ Oops! An error occurred: {e}")
+        finally:
+            # Clean up temp file
+            os.remove(tmp_path)
+elif uploaded_file and not query:
+    st.info("✨ Great! Now please enter a question about the uploaded document.")
+elif query and not uploaded_file:
+    st.warning("☝️ Please upload a document first to ask questions about it.")
+else:
+    st.info("👋 Welcome! Upload a document and ask a question to get started.")
