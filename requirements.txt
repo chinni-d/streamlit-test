@@ -1,7 +1,9 @@
 streamlit
 langchain
-openai
 faiss-cpu
-docx2txt
+huggingface-hub
+transformers
+torch
 pypdf
-sentence-transformers
+python-docx
+openai
