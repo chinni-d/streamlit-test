@@ -4,3 +4,4 @@ openai
 faiss-cpu
 docx2txt
 pypdf
+sentence-transformers
